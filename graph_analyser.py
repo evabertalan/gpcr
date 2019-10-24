@@ -20,6 +20,7 @@ class GraphAnalyser():
 	def construct_connected_component_details(self):
 		self.model = helper.load_pdb_model(self.pdb_file)
 		connected_components = list(nx.connected_components(self.graph))
+
 		prot_chain = self.model[list(connected_components[0])[0][0]]
 		bw_data = hbond_analyser.load_bw_file(self.pdb_code)
 
@@ -44,6 +45,7 @@ class GraphAnalyser():
 				
 				chain_details.append((res_name, coords, bw_number))
 			all_chains.append(chain_details)
+
 		self.connected_component_details = [c for c in sorted(all_chains, key=len, reverse=True)]
 
 
@@ -57,9 +59,7 @@ class GraphAnalyser():
 			self.connected_component_details = pickle.load(fp)
 
 
-	def plot_TM_members_of_chains(self, folder_name=None):
-		fig, ax = plt.subplots(figsize=(8, 10))
-
+	def tm_members_of_chains(self):
 		data = np.zeros(shape=(7, len(self.connected_component_details)))
 		for i, chain in enumerate(self.connected_component_details):
 			for item in chain:
@@ -68,13 +68,16 @@ class GraphAnalyser():
 					#create datamatrix for heatmap
 					tm = numb[0][:-1]
 					data[int(tm)-1, i] +=1
-					# print(tm)
-					# ax.scatter(i, int(str(item[2])[0]), color='black', s=20)
+		return data
+
+	def plot_TM_members_of_chains(self, folder_name=None):
+		fig, ax = plt.subplots(figsize=(8, 10))
+
+		data = tm_members_of_chains()
 		mask = np.zeros_like(data)
 		mask[data == 0] = True
 		ax = sns.heatmap(data, linewidth=0.5, cmap="Greens",square=True, annot=True, mask=mask, cbar=False)
 
-		# ax.set_xticks(np.arange(len(self.connected_component_details)))
 		ax.set_xticklabels([len(c) for c in self.connected_component_details])
 		ax.set_yticklabels([str(i) + ' TM' for i in np.arange(data.shape[0])+1], rotation=360)
 		ax.set_xlabel('Lenght of chain')
@@ -84,9 +87,7 @@ class GraphAnalyser():
 			fig.savefig(folder_name+'/'+self.pdb_code+'_TM_members_of_chains_heatmap.png')
 
 
-	def plot_interploated_Z_axis(self, folder_name=None):
-		fig, ax = plt.subplots(figsize=(8, 10))
-
+	def interpolate_Z_axis(self):
 		all_z_coords = []
 		for chain in self.connected_component_details:
 			all_z_coords = all_z_coords + [item[1][2] for item in chain]
@@ -99,6 +100,12 @@ class GraphAnalyser():
 			near_point = [mesh[(np.abs(mesh-coord)).argmin()]  for coord in z_coords]
 			for point in near_point:
 				data[np.where(mesh == point)[0][0], i] += 1
+		return data
+
+	def plot_interploated_Z_axis(self, folder_name=None):
+		fig, ax = plt.subplots(figsize=(8, 10))
+
+		data = interpolate_Z_axis()
 
 		mask = np.zeros_like(data)
 		mask[data == 0] = True
@@ -173,11 +180,11 @@ class GraphAnalyser():
 			fig.savefig(folder_name+'/'+self.pdb_code+'_nodes_in_TM_along_Z.png')
 
 	def plot_bw_in_TM_along_Z(self, folder_name=None):
-		fig, ax = plt.subplots(figsize=(10, 30))
+		fig, ax = plt.subplots(figsize=(10, 16))
 
 		for chain in self.connected_component_details:
 		    chain = sorted(chain, key=lambda item: int(str(item[2])[0]))
-		    print(chain)
+
 		    for item in chain:
 		        z_coords = item[1][2]
 		        numb = re.findall(r'\d+\.', str(item[2]))
