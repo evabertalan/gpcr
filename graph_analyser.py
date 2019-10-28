@@ -113,7 +113,7 @@ class GraphAnalyser():
 		if folder:
 			self.score_bw_centralities.to_csv(folder+'/'+self.pdb_code+'_score_bw_centralities.csv', index=False)
 
-	def create_tables(self, folder):
+	def create_extended_table(self, folder):
 		self.closeness_centrality()
 		self.degree_centrality()
 		self.betweenness_centrality()
