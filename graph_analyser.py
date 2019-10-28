@@ -1,5 +1,6 @@
 import networkx as nx
 import numpy as np
+import pandas as pd
 import pickle
 import re
 import helper
@@ -16,13 +17,13 @@ class GraphAnalyser():
 	def create_graph(self):
 		self.hba = helper.hbonds_from_pdb(self.pdb_file)
 		self.graph = self.hba.filtered_graph
+		self.bw_data = hbond_analyser.load_bw_file(self.pdb_code)
 
 	def construct_connected_component_details(self):
 		self.model = helper.load_pdb_model(self.pdb_file)
 		connected_components = list(nx.connected_components(self.graph))
 
 		prot_chain = self.model[list(connected_components[0])[0][0]]
-		bw_data = hbond_analyser.load_bw_file(self.pdb_code)
 
 		all_chains = []
 		for connected_chain in connected_components:
@@ -36,7 +37,7 @@ class GraphAnalyser():
 					res = prot_chain[res_index]
 					coords = res['CA'].get_coord()
 
-				if res_index <= len(bw_data): bw_number = hbond_analyser.get_bw_number(bw_data[res_index-1])
+				if res_index <= len(self.bw_data): bw_number = hbond_analyser.get_bw_number(self.bw_data[res_index-1])
 				else: bw_number = 1
 
 				# if re.search('HOH', res_name): bw_number=1
@@ -58,6 +59,80 @@ class GraphAnalyser():
 		with open(folder+'/'+self.pdb_code+'_connected_components.pickle', 'rb') as fp:
 			self.connected_component_details = pickle.load(fp)
 
+	def closeness_centrality(self, folder=None):
+		closeness_cent = dict(nx.closeness_centrality(self.graph))
+		self.closeness_cent = sorted(closeness_cent.items(), key=lambda x: x[1], reverse=True)
+		if folder:
+			cc = pd.DataFrame(data=self.closeness_cent, columns=['res_name', 'closeness_cent'])
+			cc.to_csv(folder+'/'+self.pdb_code+'_closeness_cent.csv', index=False)
+
+	def degree_centrality(self, folder=None):
+		degree_cent = dict(nx.degree_centrality(self.graph))
+		self.degree_cent = sorted(degree_cent.items(), key=lambda x: x[1], reverse=True)
+		if folder:
+			dc = pd.DataFrame(data=self.degree_cent, columns=['res_name', 'degree_cent'])
+			dc.to_csv(folder+'/'+self.pdb_code+'_degree_cent.csv', index=False)
+
+	def betweenness_centrality(self, folder=None):
+		betweenness_cent = dict(nx.betweenness_centrality(self.graph))
+		self.betweenness_cent = sorted(betweenness_cent.items(), key=lambda x: x[1], reverse=True)
+		if folder:
+			bc = pd.DataFrame(data=self.betweenness_cent, columns=['res_name', 'betweenness_cent'])
+			bc.to_csv(folder+'/'+self.pdb_code+'_betweenness_cent.csv', index=False)
+
+	def write_centralities(self, folder=None):
+		centralities = pd.DataFrame(data=self.betweenness_cent, columns=['res_name', 'betweenness_cent'])
+		for i in self.degree_cent:
+			centralities.loc[(centralities['res_name'] == i[0]), 'degree_cent'] = i[1]
+		for i in self.closeness_cent:
+			centralities.loc[(centralities['res_name'] == i[0]), 'closeness_cent'] = i[1]
+		if folder:
+			centralities.to_csv(folder+'/'+self.pdb_code+'_centralities.csv', index=False)
+		self.centralities = centralities
+		self.centralities.style.background_gradient(cmap='Greys')
+
+	def _scale(self, col):
+		normalized_col = (col-col.min())/(col.max()-col.min())
+		return normalized_col
+
+	def score_bw_centralities(self, folder):
+		scored_centralities = self.centralities.copy()
+		scored_centralities['betweenness_cent'] = self._scale(self.centralities['betweenness_cent'])
+		scored_centralities['degree_cent'] = self._scale(self.centralities['degree_cent'])
+		scored_centralities['closeness_cent'] = self._scale(self.centralities['closeness_cent'])
+		scored_centralities['score'] = scored_centralities.sum(axis=1)
+		bw_numbers = []
+		for index, row in scored_centralities.iterrows():
+		    res_index = int(re.findall(r'\d+', row[0])[0])
+		    if res_index <= len(self.bw_data): bw_number = hbond_analyser.get_bw_number(self.bw_data[res_index-1])
+		    else: bw_number = 1
+		    bw_numbers.append(bw_number)
+		scored_centralities['BW number'] = bw_numbers
+		self.score_bw_centralities = scored_centralities.sort_values(by=['score'], ascending=False)
+		self.score_bw_centralities.style.background_gradient(cmap='Greys')
+		if folder:
+			self.score_bw_centralities.to_csv(folder+'/'+self.pdb_code+'_score_bw_centralities.csv', index=False)
+
+	def create_tables(self, folder):
+		self.closeness_centrality()
+		self.degree_centrality()
+		self.betweenness_centrality()
+		self.write_centralities()
+		self.score_bw_centralities()
+
+		extended_table = self.score_bw_centralities.copy()
+		for i, chain in enumerate(self.connected_component_details):
+			for item in chain:
+				extended_table.loc[(extended_table['res_name'] == item[0]), 'res_id'] = int(re.findall(r'\d+', item[0])[0])
+				extended_table.loc[(extended_table['res_name'] == item[0]), 'res_code'] = item[0][2:5]
+				extended_table.loc[(extended_table['res_name'] == item[0]), 'x'] = item[1][0]
+				extended_table.loc[(extended_table['res_name'] == item[0]), 'y'] = item[1][1]
+				extended_table.loc[(extended_table['res_name'] == item[0]), 'z'] = item[1][2]
+				extended_table.loc[(extended_table['res_name'] == item[0]), 'chain_id'] = i
+				extended_table.loc[(extended_table['res_name'] == item[0]), 'chain_length'] = len(chain)
+
+		extended_table.to_csv(folder+'/'+self.pdb_code+'_extended_table.csv', index=False)
+
 
 	def tm_members_of_chains(self):
 		data = np.zeros(shape=(7, len(self.connected_component_details)))
@@ -65,7 +140,7 @@ class GraphAnalyser():
 			for item in chain:
 				numb = re.findall(r'\d+\.', str(item[2]))
 				if len(numb) > 0 and int(numb[0][:-1]) <= 7 and int(numb[0][0]) > 0: 
-					#create datamatrix for heatmap
+					#create heatmap datamatrix
 					tm = numb[0][:-1]
 					data[int(tm)-1, i] +=1
 		return data
