@@ -6,6 +6,7 @@ import re
 import helper
 import seaborn as sns
 import hbond_analyser
+from sklearn.decomposition import PCA
 import matplotlib.pyplot as plt
 
 
@@ -95,7 +96,7 @@ class GraphAnalyser():
 		normalized_col = (col-col.min())/(col.max()-col.min())
 		return normalized_col
 
-	def score_bw_centralities(self, folder):
+	def score_bw_centralities(self, folder=None):
 		scored_centralities = self.centralities.copy()
 		scored_centralities['betweenness_cent'] = self._scale(self.centralities['betweenness_cent'])
 		scored_centralities['degree_cent'] = self._scale(self.centralities['degree_cent'])
@@ -132,7 +133,35 @@ class GraphAnalyser():
 				extended_table.loc[(extended_table['res_name'] == item[0]), 'chain_length'] = len(chain)
 
 		extended_table.to_csv(folder+'/'+self.pdb_code+'_extended_table.csv', index=False)
+		self.extended_table = extended_table
 
+	def load_extended_table(self, folder):
+		self.extended_table = pd.read_csv(folder+'/'+self.pdb_code+'_extended_table.csv')
+
+	def filter_top_centralities(self, folder, sort_by, top=30):
+		df = self.extended_table.sort_values(by=[sort_by], ascending=False)
+		df = df[(df['BW number'] > 1)]
+		filtered_df = df[(df['BW number'] > 1)][['BW number', sort_by]].to_numpy()[:top]
+		return filtered_df
+
+	def plot_projected_centrality_score(self, folder, color_by='score'):
+		#here use self.extended_table or just make code pretty everywhere else
+		extended_table = self.extended_table.sort_values(by=[color_by], ascending=False)
+		XY = extended_table[['x', 'y']].to_numpy()
+		z = extended_table['z'].to_numpy()
+		pca = PCA(n_components=1)
+		xy = pca.fit_transform(XY)
+		color = extended_table[color_by].to_numpy()
+		labels = extended_table['BW number'].to_numpy()
+		fig, ax = plt.subplots(figsize=(13,13))
+		ax.scatter(xy, z, c=color, cmap='YlGn')
+		for i, text in enumerate(labels[:35]):
+		    ax.annotate(text, (xy[i], z[i]))
+
+		ax.set_xlabel('projected xy plane')
+		ax.set_ylabel('Z-axis')
+		ax.set_title(self.pdb_code + ' projected '+color_by)
+		fig.savefig(folder+'/'+self.pdb_code+'_projected_centrality_'+color_by+'.png')
 
 	def tm_members_of_chains(self):
 		data = np.zeros(shape=(7, len(self.connected_component_details)))
