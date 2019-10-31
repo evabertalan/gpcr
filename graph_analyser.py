@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 import pickle
 import re
-import helper
+from .helper import Helper
 import seaborn as sns
 import hbond_analyser
 from sklearn.decomposition import PCA
@@ -14,14 +14,19 @@ class GraphAnalyser():
 	def __init__(self, pdb_code, pdb_file):
 		self.pdb_code = pdb_code
 		self.pdb_file = pdb_file
+		self.helper = Helper()
 
-	def create_graph(self):
-		self.hba = helper.hbonds_from_pdb(self.pdb_file)
-		self.graph = self.hba.filtered_graph
+	def create_graph(self, gtype='hba'):
+		if gtype == 'hba':
+			self.hba = self.helper.hbonds_from_pdb(self.pdb_file)
+			self.graph = self.hba.filtered_graph
+		elif gtype == 'wba':
+			self.wba = self.helper.wwire_from_pdb(self.pdb_file)
+			self.graph = self.wba.filtered_graph
 		self.bw_data = hbond_analyser.load_bw_file(self.pdb_code)
 
 	def construct_connected_component_details(self):
-		self.model = helper.load_pdb_model(self.pdb_file)
+		self.model = self.helper.load_pdb_model(self.pdb_file)
 		connected_components = list(nx.connected_components(self.graph))
 
 		prot_chain = self.model[list(connected_components[0])[0][0]]
@@ -177,7 +182,7 @@ class GraphAnalyser():
 	def plot_TM_members_of_chains(self, folder_name=None):
 		fig, ax = plt.subplots(figsize=(8, 10))
 
-		data = tm_members_of_chains()
+		data = self.tm_members_of_chains()
 		mask = np.zeros_like(data)
 		mask[data == 0] = True
 		ax = sns.heatmap(data, linewidth=0.5, cmap="Greens",square=True, annot=True, mask=mask, cbar=False)
@@ -209,14 +214,14 @@ class GraphAnalyser():
 	def plot_interploated_Z_axis(self, folder_name=None):
 		fig, ax = plt.subplots(figsize=(8, 10))
 
-		data = interpolate_Z_axis()
+		data = self.interpolate_Z_axis()
 
 		mask = np.zeros_like(data)
 		mask[data == 0] = True
 		ax = sns.heatmap(data, square=True, cbar=False, annot=True, cmap='Blues', mask=mask)
 
 		ax.set_xticklabels([len(c) for c in self.connected_component_details])
-		ax.set_yticklabels(mesh, rotation=360)
+		# ax.set_yticklabels(mesh, rotation=360)
 		ax.set_xlabel('Lenght of chain')
 		ax.set_ylabel('Interpolated Z axis coordinates')
 		ax.set_title(self.pdb_code+' number of nodes in the interpolated distance')
@@ -305,5 +310,59 @@ class GraphAnalyser():
 		if folder_name:
 			fig.savefig(folder_name+'/'+self.pdb_code+'_bw_number_TM_along_Z.png')
 
-# def degree_centrality(): 
+	def plot_scored_bw_water_wire(self, folder_name, label=True):
+		nodes = self.graph.nodes
+		node_positions = {}
+		edges = list(self.graph.edges)
+		average_water_per_wire = self.wba.compute_average_water_per_wire()
 
+		for index, row in self.extended_table.iterrows():
+		    res = str(row['res_name'])
+		    if res in nodes:
+		        node_positions[res] = {'coords': [row['x'], row['y'], row['z']],
+		                              'bw_number': row['BW number'],
+		                              'id': row['res_id'],
+		                              'score': row['score']}
+		
+		XY = [i['coords'][0:2] for i in node_positions.values()]
+		pca = PCA(n_components=1)
+		xy = pca.fit_transform(XY)
+
+		for i, item in enumerate(node_positions.values()):
+		    item['pca'] = [xy[i][0], item['coords'][2]]
+
+		edge_lines = []
+		waters = []
+		for edge in edges:
+			edge_lines.append((node_positions[edge[0]]['pca'], node_positions[edge[1]]['pca']))
+			key = str(edge[0])+':'+str(edge[1])
+			if key in average_water_per_wire: 
+				waters.append(average_water_per_wire[key])
+			else:
+				key = str(edge[1])+':'+str(edge[0])
+				waters.append(average_water_per_wire[key])
+
+		plt.figure(figsize=(10,16))
+		color = [item['score'] for item in node_positions.values()]
+		x = [item['pca'][0] for item in node_positions.values()]
+		y = [item['pca'][1] for item in node_positions.values()]
+
+		plt.scatter(x, y, c=color, cmap='YlGn', s=300)
+		for i, item in enumerate(node_positions.values()):
+		    plt.annotate('{:.2f}'.format(item['bw_number']), (item['pca'][0], item['pca'][1]+0.25), weight='bold')
+		    plt.annotate(int(item['id']), (item['pca'][0]+0.2, item['pca'][1]-0.25))
+		    
+
+		for i, edge in enumerate(edge_lines):
+		    x=[edge[0][0], edge[1][0]]
+		    y=[edge[0][1], edge[1][1]]
+		    
+		    plt.plot(x, y, c='gray')
+		    if label:
+		        plt.annotate(int(waters[i]), (x[0] + (x[1]-x[0])/2, y[0] + (y[1]-y[0])/2), color='indianred')
+
+
+		plt.title(self.pdb_code+' water wire')
+		plt.xlabel('Projected xy plane')
+		plt.ylabel('Z-axis')
+		plt.savefig(folder_name+'/'+self.pdb_code+'_scored_bw_water_wire.png')
