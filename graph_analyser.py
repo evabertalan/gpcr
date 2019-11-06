@@ -43,14 +43,16 @@ class GraphAnalyser():
 					res = prot_chain[res_index]
 					coords = res['CA'].get_coord()
 
-				if res_index <= len(self.bw_data): bw_number = hbond_analyser.get_bw_number(self.bw_data[res_index-1])
-				else: bw_number = 1
+				if res_index <= len(self.bw_data):
+					bw_number = hbond_analyser.get_bw_number(self.bw_data[res_index-1])
+					tm = self.bw_data[res_index-1]['protein_segment']
+					amino = self.bw_data[res_index-1]['amino_acid']
+				else:
+					bw_number = 1
+					tm = ''
+					amino = ''
 
-				# if re.search('HOH', res_name): bw_number=1
-				# else:  bw_number = 0
-
-				
-				chain_details.append((res_name, coords, bw_number))
+				chain_details.append((res_name, coords, bw_number, amino, tm))
 			all_chains.append(chain_details)
 
 		self.connected_component_details = [c for c in sorted(all_chains, key=len, reverse=True)]
@@ -101,19 +103,32 @@ class GraphAnalyser():
 		normalized_col = (col-col.min())/(col.max()-col.min())
 		return normalized_col
 
-	def score_bw_centralities(self, folder=None):
+	def create_score_bw_centralities(self, folder=None):
 		scored_centralities = self.centralities.copy()
 		scored_centralities['betweenness_cent'] = self._scale(self.centralities['betweenness_cent'])
 		scored_centralities['degree_cent'] = self._scale(self.centralities['degree_cent'])
 		scored_centralities['closeness_cent'] = self._scale(self.centralities['closeness_cent'])
 		scored_centralities['score'] = scored_centralities.sum(axis=1)
 		bw_numbers = []
+		tms = []
+		amino_acid_code = []
 		for index, row in scored_centralities.iterrows():
 		    res_index = int(re.findall(r'\d+', row[0])[0])
-		    if res_index <= len(self.bw_data): bw_number = hbond_analyser.get_bw_number(self.bw_data[res_index-1])
-		    else: bw_number = 1
+		    if res_index <= len(self.bw_data):
+		    	bw_number = hbond_analyser.get_bw_number(self.bw_data[res_index-1])
+		    	tm = self.bw_data[res_index-1]['protein_segment']
+		    	amino = self.bw_data[res_index-1]['amino_acid']
+		    else:
+		    	bw_number = 1
+		    	tm = ''
+		    	amino = ''
 		    bw_numbers.append(bw_number)
+		    tms.append(tm)
+		    amino_acid_code.append(amino)
+
 		scored_centralities['BW number'] = bw_numbers
+		scored_centralities['TM'] = tms
+		scored_centralities['amino_acid'] = amino_acid_code
 		self.score_bw_centralities = scored_centralities.sort_values(by=['score'], ascending=False)
 		self.score_bw_centralities.style.background_gradient(cmap='Greys')
 		if folder:
@@ -124,7 +139,7 @@ class GraphAnalyser():
 		self.degree_centrality()
 		self.betweenness_centrality()
 		self.write_centralities()
-		self.score_bw_centralities()
+		self.create_score_bw_centralities()
 
 		extended_table = self.score_bw_centralities.copy()
 		for i, chain in enumerate(self.connected_component_details):
@@ -322,7 +337,9 @@ class GraphAnalyser():
 		        node_positions[res] = {'coords': [row['x'], row['y'], row['z']],
 		                              'bw_number': row['BW number'],
 		                              'id': row['res_id'],
-		                              'score': row['score']}
+		                              'score': row['score'],
+		                              'amino_acid':row['amino_acid'],
+		                              'tm': row['TM']}
 		
 		XY = [i['coords'][0:2] for i in node_positions.values()]
 		pca = PCA(n_components=1)
@@ -349,8 +366,11 @@ class GraphAnalyser():
 
 		plt.scatter(x, y, c=color, cmap='YlGn', s=300)
 		for i, item in enumerate(node_positions.values()):
-		    plt.annotate('{:.2f}'.format(item['bw_number']), (item['pca'][0], item['pca'][1]+0.25), weight='bold')
-		    plt.annotate(int(item['id']), (item['pca'][0]+0.2, item['pca'][1]-0.25))
+			if int(str(item['bw_number'])[0]) == 0:
+				plt.annotate(item['tm'], (item['pca'][0], item['pca'][1]+0.25), weight='bold')
+			else:
+				plt.annotate('{:.2f}'.format(float(item['bw_number'])), (item['pca'][0], item['pca'][1]+0.25), weight='bold')
+			plt.annotate(str(item['amino_acid'])+str(int(item['id'])), (item['pca'][0]+0.2, item['pca'][1]-0.25))
 		    
 
 		for i, edge in enumerate(edge_lines):
