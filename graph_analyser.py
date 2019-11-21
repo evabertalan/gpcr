@@ -158,11 +158,22 @@ class GraphAnalyser():
 	def load_extended_table(self, folder):
 		self.extended_table = pd.read_csv(folder+'/'+self.pdb_code+'_extended_table.csv')
 
-	def filter_top_centralities(self, folder, sort_by, top=30):
+	def filter_top_centralities(self, sort_by, top=30):
 		df = self.extended_table.sort_values(by=[sort_by], ascending=False)
 		df = df[(df['BW number'] > 1)]
 		filtered_df = df[(df['BW number'] > 1)][['BW number', sort_by]].to_numpy()[:top]
 		return filtered_df
+
+	def add_avg_coords(self, coord_table, folder):
+		et = self.extended_table
+		for index, row in coord_table.iterrows():
+			et.loc[(et['BW number'] == row['bw_number']), 'avg_x'] = row['avg_x']
+			et.loc[(et['BW number'] == row['bw_number']), 'avg_y'] = row['avg_y']
+			et.loc[(et['BW number'] == row['bw_number']), 'avg_z'] = row['avg_z']
+
+		et.to_csv(folder+'/'+self.pdb_code+'_extended_table.csv', index=False)
+		self.extended_table = et
+
 
 	def plot_projected_centrality_score(self, folder, color_by='score'):
 		#here use self.extended_table or just make code pretty everywhere else
@@ -325,7 +336,7 @@ class GraphAnalyser():
 		if folder_name:
 			fig.savefig(folder_name+'/'+self.pdb_code+'_bw_number_TM_along_Z.png')
 
-	def plot_scored_bw_water_wire(self, folder_name, label=True):
+	def plot_scored_bw_water_wire(self, folder_name, score='degree_cent', coords='unique', label=True):
 		nodes = self.graph.nodes
 		node_positions = {}
 		edges = list(self.graph.edges)
@@ -334,12 +345,16 @@ class GraphAnalyser():
 		for index, row in self.extended_table.iterrows():
 		    res = str(row['res_name'])
 		    if res in nodes:
-		        node_positions[res] = {'coords': [row['x'], row['y'], row['z']],
-		                              'bw_number': row['BW number'],
+		        node_positions[res] = {'bw_number': row['BW number'],
 		                              'id': row['res_id'],
-		                              'score': row['score'],
+		                              'score': row[score],
 		                              'amino_acid':row['amino_acid'],
 		                              'tm': row['TM']}
+
+		        if coords == 'avg' and int(node_positions[res]['bw_number']) != 0:
+		        	node_positions[res]['coords'] = [row['avg_x'], row['avg_y'], row['avg_z']]
+		        else:
+		        	node_positions[res]['coords'] = [row['x'], row['y'], row['z']]
 		
 		XY = [i['coords'][0:2] for i in node_positions.values()]
 		pca = PCA(n_components=1)
@@ -364,7 +379,9 @@ class GraphAnalyser():
 		x = [item['pca'][0] for item in node_positions.values()]
 		y = [item['pca'][1] for item in node_positions.values()]
 
-		plt.scatter(x, y, c=color, cmap='YlGn', s=300)
+		# plt.scatter(x, y, c='#39465e', s=300)
+		
+		plt.scatter(x, y, c=color, cmap='Blues', s=300)
 		for i, item in enumerate(node_positions.values()):
 			if int(str(item['bw_number'])[0]) == 0:
 				plt.annotate(item['tm'], (item['pca'][0], item['pca'][1]+0.25), weight='bold')
@@ -378,11 +395,13 @@ class GraphAnalyser():
 		    y=[edge[0][1], edge[1][1]]
 		    
 		    plt.plot(x, y, c='gray')
+		    # plt.plot(x, y, c='#424242')
 		    if label:
 		        plt.annotate(int(waters[i]), (x[0] + (x[1]-x[0])/2, y[0] + (y[1]-y[0])/2), color='indianred')
 
 
 		plt.title(self.pdb_code+' water wire')
-		plt.xlabel('Projected xy plane')
-		plt.ylabel('Z-axis')
-		plt.savefig(folder_name+'/'+self.pdb_code+'_scored_bw_water_wire.png')
+		plt.axis('off')
+		# plt.xlabel('Projected xy plane')
+		# plt.ylabel('Z-axis')
+		plt.savefig(folder_name+'/'+self.pdb_code+'_'+score+'_bw_water_wire_'+coords+'_coords_bare.png')

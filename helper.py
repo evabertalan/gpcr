@@ -2,6 +2,7 @@ import os
 import pickle
 from shutil import copyfile
 import numpy as np
+from scipy.stats import norm
 from mdhbond import HbondAnalysis
 from mdhbond import WireAnalysis
 from Bio.PDB.PDBParser import PDBParser
@@ -94,7 +95,7 @@ class Helper:
 
 
     def water_number_in_pdb(self, pdb_file):
-        waters = water_in_pdb(pdb_file)
+        waters = self.water_in_pdb(pdb_file)
         return len(waters)
 
 
@@ -110,18 +111,22 @@ class Helper:
         if chain_id:
             waters = water_in_chain(pdb_file, chain_id)
         else:
-            waters = water_in_pdb(pdb_file)
+            waters = self.water_in_pdb(pdb_file)
         
         water_coord = [water['O'].get_coord() for water in waters]
         return np.array(water_coord)
 
 
-    def normalized_internal_water_coordinates(self, file, folder):
+    def normalized_internal_water_coordinates(self, file):
+        internal_water_coordinates(self, file, get_normalized=True)
+
+
+    def internal_water_coordinates(self, file, get_normalized=False):
         io = PDBIO()
         parser = PDBParser(QUIET = True)
         
         code = file[0:4]
-        struct = parser.get_structure(code, folder+file)
+        struct = parser.get_structure(code, file)
 
         plane = list(struct[0][' '].get_residues())
         up_plane = plane[1]['O'].get_coord()[2]
@@ -134,13 +139,16 @@ class Helper:
         
         
         chain_id = chain.get_id()
-        waters = water_in_chain(folder+file, chain_id)
+        waters = water_in_chain(file, chain_id)
         internal_waters = [water for water in waters if water['O'].get_coord()[2] < up_plane and water['O'].get_coord()[2] > down_plane]
 
         internal_water_coords = [water['O'].get_coord() for water in internal_waters]
-        norm_coords = internal_water_coords/up_plane
-        return norm_coords
 
+        if get_normalized:
+            norm_coords = internal_water_coords/up_plane
+            return norm_coords
+
+        else: return internal_water_coords
 
     class TMSelect(Select):
         def __init__(self, up_plane, down_plane, chain):
@@ -218,11 +226,11 @@ class Helper:
             down_plane = plane[1]['N'].get_coord()[2] - offset
         
         
-        chain_id = get_TM_chain(list(struct[0]), up_plane, down_plane)
+        chain_id = self.get_TM_chain(list(struct[0]), up_plane, down_plane)
         chain = struct[0][chain_id]
 
         io.set_structure(struct)
-        io.save(target_folder+code+'_tm.pdb', TMSelect(up_plane, down_plane, chain))
+        io.save(target_folder+code+'_tm.pdb', self.TMSelect(up_plane, down_plane, chain))
         
 
     def concatenate_arrays(self, arrays):
@@ -246,9 +254,9 @@ class Helper:
     def plot_water_Z_axis(self, waters, round_to=0):
         unique_z, counts_z = np.unique(np.round(waters[:,2], round_to), return_counts=True)
         
-        fig = plt.figure(figsize=(10,8))
-        plt.plot(counts_z, unique_z, '.', color='maroon')
-        plt.plot(counts_z, unique_z, linewidth=0.7, color='gray')
+        fig = plt.figure(figsize=(8,15))
+        plt.plot(counts_z, unique_z, linewidth=2, color='gray')
+        plt.plot(counts_z, unique_z, '.', color='maroon', markersize=20)
         plt.title('Number of waters in crystal structures along the Z axis', fontsize=20)
         plt.xlabel('Number of waters', fontsize=20)
         plt.ylabel('Z-axis coordinate', fontsize=20)
@@ -337,3 +345,17 @@ class Helper:
         ax.set_ylabel('y')
         ax.set_zlabel('z')
         return fig
+
+    def plot_water_distribution(self, water_number, normalize=False):
+        u, c = np.unique(water_number, return_counts=True)
+        mu, std = norm.fit(water_number)
+
+        if normalize:
+            plt.bar(u, c/len(water_number), color='lightsteelblue')
+        else:
+            plt.hist(water_number, bins=25, density=True, alpha=0.6, color='lightsteelblue')
+        xmin, xmax = plt.xlim()
+        x = np.linspace(xmin, xmax, 100)
+        p = norm.pdf(x, mu, std)
+        plt.plot(x, p, 'k', linewidth=2)
+        return plt
