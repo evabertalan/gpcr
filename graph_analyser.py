@@ -1,4 +1,5 @@
 import networkx as nx
+from networkx.algorithms import community
 import numpy as np
 import pandas as pd
 import pickle
@@ -174,6 +175,19 @@ class GraphAnalyser():
 		et.to_csv(folder+'/'+self.pdb_code+'_extended_table.csv', index=False)
 		self.extended_table = et
 
+	def add_communities(self, folder):
+		et = self.extended_table
+		communities_generator = community.girvan_newman(self.graph)
+		top_level_communities = next(communities_generator)
+		next_level_communities = next(communities_generator)
+		self.communities = sorted(map(sorted, next_level_communities))
+		for i, comm in enumerate(self.communities):
+			for res_name in comm:
+				et.loc[(et['res_name'] == res_name), 'community_id'] = i
+
+		et.to_csv(folder+'/'+self.pdb_code+'_extended_table.csv', index=False)
+		self.extended_table = et
+
 
 	def plot_projected_centrality_score(self, folder, color_by='score'):
 		#here use self.extended_table or just make code pretty everywhere else
@@ -336,7 +350,7 @@ class GraphAnalyser():
 		if folder_name:
 			fig.savefig(folder_name+'/'+self.pdb_code+'_bw_number_TM_along_Z.png')
 
-	def plot_scored_bw_water_wire(self, folder_name, score='degree_cent', coords='unique', label=True):
+	def get_transformed_graph_positions(self, score, coords):
 		nodes = self.graph.nodes
 		node_positions = {}
 		edges = list(self.graph.edges)
@@ -349,7 +363,8 @@ class GraphAnalyser():
 		                              'id': row['res_id'],
 		                              'score': row[score],
 		                              'amino_acid':row['amino_acid'],
-		                              'tm': row['TM']}
+		                              'tm': row['TM'],
+		                              'community_id': row['community_id']}
 
 		        if coords == 'avg' and int(node_positions[res]['bw_number']) != 0:
 		        	node_positions[res]['coords'] = [row['avg_x'], row['avg_y'], row['avg_z']]
@@ -373,6 +388,12 @@ class GraphAnalyser():
 			else:
 				key = str(edge[1])+':'+str(edge[0])
 				waters.append(average_water_per_wire[key])
+
+		return node_positions, edge_lines, waters
+
+
+	def plot_scored_bw_water_wire(self, folder_name, score='degree_cent', coords='unique', label=True):
+		node_positions, edge_lines, waters = self.get_transformed_graph_positions(score, coords)
 
 		plt.figure(figsize=(10,16))
 		color = [item['score'] for item in node_positions.values()]
@@ -401,7 +422,45 @@ class GraphAnalyser():
 
 
 		plt.title(self.pdb_code+' water wire')
-		plt.axis('off')
-		# plt.xlabel('Projected xy plane')
-		# plt.ylabel('Z-axis')
+		# plt.axis('off')
+		plt.xlabel('Projected xy plane')
+		plt.ylabel('Z-axis')
 		plt.savefig(folder_name+'/'+self.pdb_code+'_'+score+'_bw_water_wire_'+coords+'_coords_bare.png')
+
+
+	def plot_water_wire_communities(self, folder_name, score='degree_cent', coords='unique', label=True):
+		self.add_communities(folder_name)
+		node_positions, edge_lines, waters = self.get_transformed_graph_positions(score, coords)
+
+
+		plt.figure(figsize=(10,16))
+
+		viridis = plt.cm.get_cmap('tab20', 20)
+		clrs = viridis(np.linspace(0, 1, 20))
+		colors = np.concatenate((clrs[::2], clrs[1::2]))
+
+		grays = ['dimgrey', 'grey', 'darkgray', 'silver', 'lightgray', 'lightgray']
+		for i, edge in enumerate(edge_lines):
+		    x=[edge[0][0], edge[1][0]]
+		    y=[edge[0][1], edge[1][1]]
+		    
+		    plt.plot(x, y, linewidth=1.3, color=grays[int(waters[i])])
+
+		for item in node_positions.values():
+			plt.scatter(item['pca'][0], item['pca'][1], color=colors[int(item['community_id'])],  s=50+item['score']*300, label=int(item['community_id']))
+
+
+		for i, item in enumerate(node_positions.values()):
+			if int(str(item['bw_number'])[0]) == 0:
+				plt.annotate(item['tm'], (item['pca'][0], item['pca'][1]+0.25), weight='bold')
+			else:
+				plt.annotate('{:.2f}'.format(float(item['bw_number'])), (item['pca'][0], item['pca'][1]+0.25), weight='bold')
+			plt.annotate(str(item['amino_acid'])+str(int(item['id'])), (item['pca'][0]+0.2, item['pca'][1]-0.25))
+		   
+
+		plt.title(self.pdb_code+' water wire')
+		# plt.legend()
+		# plt.axis('off')
+		plt.xlabel('Projected xy plane')
+		plt.ylabel('Z-axis')
+		plt.savefig(folder_name+'/'+self.pdb_code+'_'+score+'_bw_water_wire_'+coords+'_communities.png')
